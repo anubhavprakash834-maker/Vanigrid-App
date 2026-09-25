@@ -7,13 +7,39 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 import 'transceiver_provider.dart';
 
-/// Represents a peer node on the mesh
+// --- NEW CLASSES FOR TACTICAL HANDSHAKE ---
+class ConnectionRequest {
+  final String endpointId;
+  final String endpointName;
+  ConnectionRequest({required this.endpointId, required this.endpointName});
+}
+
+class PendingRequestsNotifier extends Notifier<List<ConnectionRequest>> {
+  @override
+  List<ConnectionRequest> build() => [];
+
+  void addRequest(ConnectionRequest req) {
+    if (!state.any((r) => r.endpointId == req.endpointId)) {
+      state = [...state, req];
+    }
+  }
+
+  void removeRequest(String id) {
+    state = state.where((r) => r.endpointId != id).toList();
+  }
+}
+
+final pendingRequestsProvider = NotifierProvider<PendingRequestsNotifier, List<ConnectionRequest>>(() {
+  return PendingRequestsNotifier();
+});
+// -------------------------------------------
+
 class DiscoveredUnit {
   final String id;
   final String callsign;
   final String protocol;
   final int signalStrength;
-  final bool isEmergency; // Flag for priority triage
+  final bool isEmergency;
 
   DiscoveredUnit({
     required this.id,
@@ -27,16 +53,13 @@ class DiscoveredUnit {
 class EmergencyStatusNotifier extends Notifier<bool> {
   @override
   bool build() => false;
-
   void setEmergency(bool value) => state = value;
   void toggle() => state = !state;
 }
 
-final emergencyStatusProvider = NotifierProvider<EmergencyStatusNotifier, bool>(
-  () {
-    return EmergencyStatusNotifier();
-  },
-);
+final emergencyStatusProvider = NotifierProvider<EmergencyStatusNotifier, bool>(() {
+  return EmergencyStatusNotifier();
+});
 
 class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
   final String _serviceId = "com.sih.vanigrid.mesh";
@@ -46,6 +69,16 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
   @override
   List<DiscoveredUnit> build() {
     return [];
+  }
+
+  void acceptRequest(String endpointId) {
+    ref.read(meshNetworkProvider).acceptIncomingConnection(endpointId);
+    ref.read(pendingRequestsProvider.notifier).removeRequest(endpointId);
+  }
+
+  void rejectRequest(String endpointId) {
+    ref.read(meshNetworkProvider).rejectIncomingConnection(endpointId);
+    ref.read(pendingRequestsProvider.notifier).removeRequest(endpointId);
   }
 
   List<DiscoveredUnit> _sortEmergencyFirst(List<DiscoveredUnit> list) {
@@ -71,7 +104,6 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
     final rawCallsign = prefs.getString('user_callsign') ?? "Unknown Unit";
     final isSos = ref.read(emergencyStatusProvider);
 
-    // If SOS is active, prepend VG-SOS- so peers and drones parse it immediately
     final broadcastCallsign = isSos ? "VG-SOS-$rawCallsign" : "VG-$rawCallsign";
 
     await [
@@ -94,26 +126,34 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
       _isWifiActive = true;
       await Nearby().startAdvertising(
         broadcastCallsign,
-        Strategy.P2P_CLUSTER,
+        Strategy.P2P_STAR, // Must match discovery strategy
         onConnectionInitiated: (id, info) {
-          ref.read(meshNetworkProvider).acceptIncomingConnection(id);
+          final isSos = ref.read(emergencyStatusProvider);
+          if (isSos) {
+            ref.read(meshNetworkProvider).acceptIncomingConnection(id);
+          } else {
+            ref.read(pendingRequestsProvider.notifier).addRequest(
+              ConnectionRequest(endpointId: id, endpointName: info.endpointName)
+            );
+          }
         },
-        onConnectionResult: (id, status) {},
+        onConnectionResult: (id, status) {
+          if (status == Status.CONNECTED) {
+            ref.read(meshNetworkProvider).addConnectedEndpoint(id);
+          }
+        },
         onDisconnected: (id) {},
         serviceId: _serviceId,
       );
 
       await Nearby().startDiscovery(
         broadcastCallsign,
-        Strategy.P2P_CLUSTER,
+        Strategy.P2P_STAR, // FIXED: Changed from P2P_CLUSTER to P2P_STAR
         onEndpointFound: (id, name, serviceId) {
           if (state.any((unit) => unit.id == id)) return;
 
           final upperName = name.toUpperCase();
-          final bool isEmergency =
-              upperName.contains('SOS') ||
-              upperName.contains('HELP') ||
-              upperName.contains('VG-SOS-');
+          final bool isEmergency = upperName.contains('SOS') || upperName.contains('HELP') || upperName.contains('VG-SOS-');
 
           final newUnit = DiscoveredUnit(
             id: id,
@@ -129,7 +169,6 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
         },
         serviceId: _serviceId,
       );
-      debugPrint("SYSTEM LOG: Wi-Fi Direct Mesh Active ($broadcastCallsign).");
     } catch (e) {
       debugPrint("SYSTEM ERROR: Wi-Fi Mesh failed - $e");
     }
@@ -148,21 +187,10 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
           if (deviceName.isNotEmpty) {
             final upperName = deviceName.toUpperCase();
 
-            // Allow VaniGrid nodes, LoRa hardware, SOS broadcasts, or Drone relays
-            if (upperName.contains('VANI') ||
-                upperName.contains('VG-') ||
-                upperName.contains('LORA') ||
-                upperName.contains('SOS') ||
-                upperName.contains('DRN_') ||
-                deviceName.toLowerCase().contains('drn_')) {
-              final bool isEmergency =
-                  upperName.contains('SOS') ||
-                  upperName.contains('HELP') ||
-                  upperName.contains('VG-SOS-');
+            if (upperName.contains('VANI') || upperName.contains('VG-') || upperName.contains('LORA') || upperName.contains('SOS') || upperName.contains('DRN_') || deviceName.toLowerCase().contains('drn_')) {
+              final bool isEmergency = upperName.contains('SOS') || upperName.contains('HELP') || upperName.contains('VG-SOS-');
 
-              final existingIndex = state.indexWhere(
-                (unit) => unit.id == r.device.remoteId.str,
-              );
+              final existingIndex = state.indexWhere((unit) => unit.id == r.device.remoteId.str);
 
               if (existingIndex >= 0) {
                 final updatedState = [...state];
@@ -171,8 +199,7 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
                   callsign: updatedState[existingIndex].callsign,
                   protocol: updatedState[existingIndex].protocol,
                   signalStrength: r.rssi,
-                  isEmergency:
-                      isEmergency || updatedState[existingIndex].isEmergency,
+                  isEmergency: isEmergency || updatedState[existingIndex].isEmergency,
                 );
                 state = _sortEmergencyFirst(updatedState);
               } else {
@@ -189,7 +216,6 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
           }
         }
       });
-      debugPrint("SYSTEM LOG: BLE Mesh Active.");
     } catch (e) {
       debugPrint("SYSTEM ERROR: BLE Scanner failed - $e");
     }
@@ -201,19 +227,14 @@ class NetworkNotifier extends Notifier<List<DiscoveredUnit>> {
       await Nearby().stopDiscovery();
       _isWifiActive = false;
     }
-
     if (_isBleActive) {
       await FlutterBluePlus.stopScan();
       _isBleActive = false;
     }
-
     state = [];
-    debugPrint("SYSTEM LOG: All Mesh Radios Offline.");
   }
 }
 
-final networkProvider = NotifierProvider<NetworkNotifier, List<DiscoveredUnit>>(
-  () {
-    return NetworkNotifier();
-  },
-);
+final networkProvider = NotifierProvider<NetworkNotifier, List<DiscoveredUnit>>(() {
+  return NetworkNotifier();
+});

@@ -85,14 +85,19 @@ flutter:
   #   - images/a_dot_burr.jpeg
   #   - images/a_dot_ham.jpeg
   assets:
-    - assets/models/encoder.onnx
-    - assets/models/decoder.onnx
-    - assets/models/joiner.onnx
-    - assets/models/tokens.txt
+    # - assets/models/encoder.onnx
+    # - assets/models/decoder.onnx
+    # - assets/models/joiner.onnx
+    # - assets/models/tokens.txt
     - assets/images/mesh_bg_overlay.png
     - assets/images/tactical_watermark.png
     - assets/images/radar_grid.png
     - assets/images/chip_pattern.png
+    # - assets/models/moonshine/cached_decode.onnx
+    # - assets/models/moonshine/encode.onnx
+    # - assets/models/moonshine/preprocess.onnx
+    # - assets/models/moonshine/tokens.txt
+    # - assets/models/moonshine/uncached_decode.onnx
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

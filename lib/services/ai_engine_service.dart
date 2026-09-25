@@ -1,64 +1,48 @@
 import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:sherpa_onnx/sherpa_onnx.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:flutter/foundation.dart';
+import 'package:path_provider/path_provider.dart';
 
 class AIEngineService {
   bool isInitialized = false;
   OfflineRecognizer? _sttRecognizer;
   final FlutterTts _flutterTts = FlutterTts();
 
-  Future<String> _extractModelToStorage(String assetPath) async {
-    final byteData = await rootBundle.load(assetPath);
-    final dir = await getApplicationDocumentsDirectory();
-    final file = File('${dir.path}/${assetPath.split('/').last}');
-
-    if (!await file.exists()) {
-      await file.writeAsBytes(
-        byteData.buffer.asUint8List(byteData.offsetInBytes, byteData.lengthInBytes),
-      );
-    }
-    return file.path;
-  }
-
-  /// Initializes the Sherpa-ONNX engine with Hybrid Architecture Support
   Future<void> initializeModels(String language) async {
     try {
       initBindings();
       OfflineRecognizerConfig config;
 
+      final dir = await getApplicationDocumentsDirectory();
+      final langDir = '${dir.path}/models/$language';
+
       if (language == 'English') {
-        // 1. ARCHITECTURE: ZIPFORMER TRANSDUCER (For English)
-        String encoderPath = await _extractModelToStorage('assets/models/encoder.onnx');
-        String decoderPath = await _extractModelToStorage('assets/models/decoder.onnx');
-        String joinerPath = await _extractModelToStorage('assets/models/joiner.onnx');
-        String tokensPath = await _extractModelToStorage('assets/models/tokens.txt');
+        // Validate Moonshine architecture
+        if (!await File('$langDir/encode.int8.onnx').exists()) {
+           throw Exception("English Neural weights missing from edge storage.");
+        }
 
         config = OfflineRecognizerConfig(
           model: OfflineModelConfig(
-            transducer: OfflineTransducerModelConfig(
-              encoder: encoderPath,
-              decoder: decoderPath,
-              joiner: joinerPath,
+            moonshine: OfflineMoonshineModelConfig(
+              preprocessor: '$langDir/preprocess.onnx',
+              encoder: '$langDir/encode.int8.onnx',
+              uncachedDecoder: '$langDir/uncached_decode.int8.onnx',
+              cachedDecoder: '$langDir/cached_decode.int8.onnx',
             ),
-            tokens: tokensPath,
+            tokens: '$langDir/tokens.txt',
             numThreads: 2, 
             debug: false,
           ),
         );
       } else {
-        // 2. ARCHITECTURE: INDIC-CONFORMER CTC (For SIH Indic Languages)
-        final dir = await getApplicationDocumentsDirectory();
-        final langDir = '${dir.path}/models/$language';
-        
+        // Validate Indic-Conformer architecture
         String modelPath = '$langDir/model.onnx';
         String tokensPath = '$langDir/tokens.txt';
 
         if (!await File(modelPath).exists()) {
-          debugPrint("SYSTEM ERROR: $language models not found. Reverting to English.");
-          return await initializeModels('English'); 
+          throw Exception("$language models not found. Download required.");
         }
 
         config = OfflineRecognizerConfig(
@@ -79,6 +63,8 @@ class AIEngineService {
       
     } catch (e) {
       debugPrint("SYSTEM ERROR: Failed to allocate .onnx weights - $e");
+      isInitialized = false;
+      rethrow;
     }
   }
 
@@ -95,7 +81,6 @@ class AIEngineService {
       stream.free(); 
       return result.text;
     }
-    
     return "No audio data received.";
   }
 
@@ -108,7 +93,6 @@ class AIEngineService {
     await _flutterTts.setSpeechRate(0.5); 
     await _flutterTts.setVolume(1.0);
     
-    debugPrint("SYSTEM LOG: Speaking '$text' in $languageCode.");
     await _flutterTts.speak(text);
   }
 }

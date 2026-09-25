@@ -9,6 +9,8 @@ class TransmissionPacket {
   final double lon;
   final String senderId;
   final bool isSos;
+  final int sentTimestamp; // NEW: For latency calculation
+  final int packetSizeBytes; // NEW: For compression telemetry
 
   TransmissionPacket({
     required this.text,
@@ -19,9 +21,10 @@ class TransmissionPacket {
     required this.lon,
     required this.senderId,
     this.isSos = false,
+    required this.sentTimestamp,
+    required this.packetSizeBytes,
   });
 
-  // Compress to a lightweight JSON string for radio transmission
   String toJsonString() {
     return jsonEncode({
       't': text,
@@ -32,10 +35,10 @@ class TransmissionPacket {
       'lo': lon,
       'id': senderId,
       'sos': isSos ? 1 : 0,
+      'ts': sentTimestamp,
     });
   }
 
-  // Decode incoming byte payloads
   factory TransmissionPacket.fromJsonString(String jsonStr) {
     final map = jsonDecode(jsonStr);
     return TransmissionPacket(
@@ -47,6 +50,8 @@ class TransmissionPacket {
       lon: (map['lo'] ?? 0.0).toDouble(),
       senderId: map['id'] ?? 'Unknown',
       isSos: map['sos'] == 1,
+      sentTimestamp: map['ts'] ?? DateTime.now().millisecondsSinceEpoch,
+      packetSizeBytes: jsonStr.length, // Byte size of the received JSON string
     );
   }
 }

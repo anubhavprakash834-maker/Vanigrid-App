@@ -7,26 +7,24 @@ import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import '../models/transmission_packet.dart';
 
 class MeshNetworkService {
-  String activeProtocol = 'wifi'; // 'wifi', 'ble', or 'lora'
+  String activeProtocol = 'wifi';
   
   final _incomingPacketController = StreamController<TransmissionPacket>.broadcast();
   Stream<TransmissionPacket> get incomingPackets => _incomingPacketController.stream;
 
   // --- HARDWARE ABSTRACTION LAYER VARIABLES ---
   final List<String> _connectedWifiEndpoints = [];
+  final Set<String> _handshakeLocks = {}; // NEW: Prevents double-socket collisions
   
-  // --- ESP32 GROUND LORA BRIDGE VARIABLES ---
   BluetoothDevice? _esp32Bridge;
   BluetoothCharacteristic? _loraWriteChar; 
   BluetoothCharacteristic? _loraReadChar;  
 
-  // --- ESP32 AIRBORNE DRONE RELAY VARIABLES ---
   BluetoothDevice? _droneBridge;
   BluetoothCharacteristic? _droneWriteChar;
   BluetoothCharacteristic? _droneReadChar;
   bool isDroneConnected = false;
 
-  // Standard Nordic UART UUIDs
   final String _uartServiceUuid = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
   final String _uartRxUuid      = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; 
   final String _uartTxUuid      = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"; 
@@ -35,26 +33,57 @@ class MeshNetworkService {
   // 1. WI-FI DIRECT MESH LAYER
   // ==============================================================================
 
+  bool isConnectedTo(String endpointId) => _connectedWifiEndpoints.contains(endpointId);
+
+  void addConnectedEndpoint(String endpointId) {
+    _handshakeLocks.remove(endpointId);
+    if (!_connectedWifiEndpoints.contains(endpointId)) {
+      _connectedWifiEndpoints.add(endpointId);
+      debugPrint("NETWORK LOG: Wi-Fi Socket Established with $endpointId");
+    }
+  }
+
   Future<void> connectToPeer(String myCallsign, String targetEndpointId) async {
+    if (isConnectedTo(targetEndpointId) || _handshakeLocks.contains(targetEndpointId)) {
+      debugPrint("NETWORK LOG: Handshake already in progress. Skipping duplicate.");
+      return;
+    }
+    _handshakeLocks.add(targetEndpointId);
+
     try {
       await Nearby().requestConnection(
         myCallsign,
         targetEndpointId,
         onConnectionInitiated: (id, info) async => await _acceptAndListen(id),
         onConnectionResult: (id, status) {
-          if (status == Status.CONNECTED && !_connectedWifiEndpoints.contains(id)) {
-            _connectedWifiEndpoints.add(id);
+          _handshakeLocks.remove(id);
+          if (status == Status.CONNECTED) {
+            addConnectedEndpoint(id);
           }
         },
-        onDisconnected: (id) => _connectedWifiEndpoints.remove(id),
+        onDisconnected: (id) {
+          _handshakeLocks.remove(id);
+          _connectedWifiEndpoints.remove(id);
+        },
       );
     } catch (e) {
+      _handshakeLocks.remove(targetEndpointId);
       debugPrint("NETWORK ERROR: Wi-Fi Connection failed - $e");
     }
   }
 
   Future<void> acceptIncomingConnection(String endpointId) async {
+    _handshakeLocks.add(endpointId); // Lock the dashboard from re-requesting
     await _acceptAndListen(endpointId);
+  }
+
+  Future<void> rejectIncomingConnection(String endpointId) async {
+    try {
+      await Nearby().rejectConnection(endpointId);
+      debugPrint("NETWORK LOG: Tactical link rejected for $endpointId");
+    } catch (e) {
+      debugPrint("NETWORK ERROR: Failed to reject - $e");
+    }
   }
 
   Future<void> _acceptAndListen(String endpointId) async {
@@ -129,7 +158,6 @@ class MeshNetworkService {
               _droneReadChar = characteristic;
               await _droneReadChar!.setNotifyValue(true);
               _droneReadChar!.onValueReceived.listen((List<int> value) {
-                // Packets captured in mid-air and streamed down to the app
                 _handleIncomingBytes(Uint8List.fromList(value));
               });
             }
@@ -158,19 +186,12 @@ class MeshNetworkService {
     final jsonString = packet.toJsonString();
     final bytes = utf8.encode(jsonString);
 
-    // Relay via ground LoRa if active
     if (activeProtocol == 'lora' && _loraWriteChar != null) {
       await _loraWriteChar!.write(bytes, withoutResponse: true);
-      debugPrint("NETWORK LOG: Transmitted ${bytes.length} bytes to Ground LoRa.");
     }
-
-    // Mirror to airborne drone if connected to rebroadcast over altitude
     if (_droneWriteChar != null) {
       await _droneWriteChar!.write(bytes, withoutResponse: true);
-      debugPrint("NETWORK LOG: Transmitted ${bytes.length} bytes to Airborne Drone.");
     }
-
-    // Wi-Fi fallback
     if (activeProtocol == 'wifi' && _connectedWifiEndpoints.isNotEmpty) {
       for (String endpointId in _connectedWifiEndpoints) {
         await Nearby().sendBytesPayload(endpointId, Uint8List.fromList(bytes));
@@ -181,7 +202,6 @@ class MeshNetworkService {
   void _handleIncomingBytes(Uint8List data) {
     try {
       final jsonString = utf8.decode(data);
-      debugPrint("NETWORK LOG: Packet intercepted -> $jsonString");
       final packet = TransmissionPacket.fromJsonString(jsonString);
       _incomingPacketController.add(packet);
     } catch (e) {

@@ -42,7 +42,8 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> with Single
     // IGNITE THE HANDS-FREE VAD PIPELINE ON BOOT
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final lang = ref.read(transceiverControllerProvider).systemLanguage;
-      ref.read(transceiverControllerProvider.notifier).startHandsFreeCall(widget.peerName, lang);
+      // FIX: Use the Continuous Duplex method so the mic doesn't turn off after 1 sentence
+      ref.read(transceiverControllerProvider.notifier).startContinuousCall(widget.peerName, lang);
     });
   }
 
@@ -81,8 +82,14 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> with Single
     // Scale the RMS value (usually 0.0 to 0.1) to an amplitude multiplier for the UI
     final visualAmplitude = (currentVolume * 15).clamp(0.2, 2.5);
 
-    return Scaffold(
-      backgroundColor: const Color(0xFF0B0F19),
+   return PopScope(
+      canPop: true,
+      onPopInvokedWithResult: (didPop, result) {
+        // Kills the microphone hardware stream when swiping back or closing the call
+        ref.read(transceiverControllerProvider.notifier).stopHandsFreeCall();
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0B0F19),
       body: SafeArea(
         child: Column(
           children: [
@@ -187,7 +194,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> with Single
                         ref.read(transceiverControllerProvider.notifier).stopHandsFreeCall();
                       } else {
                         final lang = ref.read(transceiverControllerProvider).systemLanguage;
-                        ref.read(transceiverControllerProvider.notifier).startHandsFreeCall(widget.peerName, lang);
+                        ref.read(transceiverControllerProvider.notifier).startContinuousCall(widget.peerName, lang);
                       }
                     },
                   ),
@@ -212,6 +219,7 @@ class _ActiveCallScreenState extends ConsumerState<ActiveCallScreen> with Single
             ),
           ],
         ),
+      ),
       ),
     );
   }

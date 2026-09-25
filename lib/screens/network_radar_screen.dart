@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/services.dart';
 
 import '../providers/network_provider.dart';
+import '../providers/transceiver_provider.dart'; // REQUIRED TO WAKE ENGINE
 import 'transceiver_dashboard_screen.dart';
 import 'hardware_pairing_sheet.dart';
 
@@ -41,10 +42,86 @@ class _NetworkRadarScreenState extends ConsumerState<NetworkRadarScreen> {
     }
   }
 
+  // NEW: State lock to queue overlapping requests
+  bool _isPopupOpen = false;
+
+  void _showHandshakePopup(ConnectionRequest req) {
+    if (_isPopupOpen) return; 
+    _isPopupOpen = true;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF111827),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: const BorderSide(color: Color(0xFF3B82F6), width: 2),
+          ),
+          title: Row(
+            children: [
+              const Icon(Icons.wifi_tethering, color: Color(0xFF3B82F6)),
+              const SizedBox(width: 8),
+              Text(
+                'INCOMING LINK',
+                style: GoogleFonts.rajdhani(color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1.5),
+              ),
+            ],
+          ),
+          content: Text(
+            '${req.endpointName} is requesting a tactical voice channel. Do you accept?',
+            style: GoogleFonts.inter(color: Colors.grey[400], fontSize: 14),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                ref.read(networkProvider.notifier).rejectRequest(req.endpointId);
+                Navigator.pop(dialogContext);
+              },
+              child: Text('REJECT', style: GoogleFonts.inter(color: const Color(0xFFEF4444), fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF3B82F6)),
+              onPressed: () {
+                ref.read(networkProvider.notifier).acceptRequest(req.endpointId);
+                Navigator.pop(dialogContext);
+                
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => TransceiverDashboardScreen(
+                      peerName: req.endpointName,
+                      connectionType: 'wifi',
+                    ),
+                  ),
+                );
+              },
+              child: Text('ACCEPT', style: GoogleFonts.inter(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    ).then((_) {
+      _isPopupOpen = false; // Release the lock for the next request in the queue
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final discoveredUnits = ref.watch(networkProvider);
     final isEmergencyActive = ref.watch(emergencyStatusProvider);
+
+    // WAKES THE BACKGROUND TRANSCEIVER FOR ZERO-TAP AUDIO
+    ref.watch(transceiverControllerProvider);
+
+    // LISTENS FOR INCOMING HANDSHAKES AND TRIGGERS POPUPS
+    ref.listen<List<ConnectionRequest>>(pendingRequestsProvider, (previous, current) {
+      if (current.length > (previous?.length ?? 0)) {
+        final newReq = current.last;
+        _showHandshakePopup(newReq);
+      }
+    });
 
     return PopScope(
       canPop: false,
@@ -428,7 +505,7 @@ class _NetworkRadarScreenState extends ConsumerState<NetworkRadarScreen> {
                                     MaterialPageRoute(
                                       builder: (context) => TransceiverDashboardScreen(
                                         peerName: unit.callsign,
-                                        connectionType: unit.protocol,
+                                        connectionType: 'wifi',
                                       ),
                                     ),
                                   );

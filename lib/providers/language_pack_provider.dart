@@ -14,8 +14,6 @@ TranslateLanguage _getMlKitLanguage(String lang) {
     case 'Tamil': return TranslateLanguage.tamil;
     case 'Telugu': return TranslateLanguage.telugu;
     case 'Bengali': return TranslateLanguage.bengali;
-    // Note: Odia and Malayalam fallback to English to prevent crashes 
-    // as they are not natively supported by offline ML Kit yet.
     case 'English': 
     default: 
       return TranslateLanguage.english;
@@ -25,52 +23,60 @@ TranslateLanguage _getMlKitLanguage(String lang) {
 class LanguagePackNotifier extends Notifier<Map<String, double>> {
   final Dio _dio = Dio();
 
+  // Dynamic file mapping for Hugging Face raw URLs
   final Map<String, Map<String, String>> _modelUrls = {
+    'English': {
+      'preprocess.onnx': 'https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/main/preprocess.onnx',
+      'encode.int8.onnx': 'https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/main/encode.int8.onnx',
+      'uncached_decode.int8.onnx': 'https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/main/uncached_decode.int8.onnx',
+      'cached_decode.int8.onnx': 'https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/main/cached_decode.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/csukuangfj/sherpa-onnx-moonshine-tiny-en-int8/resolve/main/tokens.txt',
+    },
     'Hindi': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Marathi': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Gujarati': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Kannada': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Malayalam': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Tamil': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Telugu': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Odia': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
     'Bengali': {
-      'model': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
-      'tokens': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
+      'model.onnx': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/model.int8.onnx',
+      'tokens.txt': 'https://huggingface.co/meetsync/indic-conformer-onnx-sherpa/resolve/main/tokens.txt',
     },
   };
 
   @override
   Map<String, double> build() {
-    // Kicks off the background hard drive scan the second the app opens
     Future.microtask(() => _verifyExistingDownloads());
     
+    // English is no longer bundled by default
     return {
-      'English': -1.0, 
+      'English': 0.0, 
       'Hindi': 0.0,
       'Marathi': 0.0,
       'Gujarati': 0.0,
@@ -83,30 +89,30 @@ class LanguagePackNotifier extends Notifier<Map<String, double>> {
     };
   }
 
-  // NEW: Scans the physical storage to update the UI on app restart
   Future<void> _verifyExistingDownloads() async {
     final dir = await getApplicationDocumentsDirectory();
     final modelManager = OnDeviceTranslatorModelManager();
-    
     Map<String, double> updatedState = Map.from(state);
 
     for (String lang in _modelUrls.keys) {
-      // 1. Check if the Hugging Face Audio Models exist on the hard drive
       final langDir = Directory('${dir.path}/models/$lang');
-      final modelFile = File('${langDir.path}/model.onnx');
-      final tokensFile = File('${langDir.path}/tokens.txt');
-      
-      bool hasAcoustic = await modelFile.exists() && await tokensFile.exists();
+      bool hasAllFiles = true;
 
-      // 2. Check if the Google ML Kit Text Models exist in the OS cache
+      // Ensure every single required file exists for the specific architecture
+      for (String fileName in _modelUrls[lang]!.keys) {
+        if (!await File('${langDir.path}/$fileName').exists()) {
+          hasAllFiles = false;
+          break;
+        }
+      }
+
       final mlKitLang = _getMlKitLanguage(lang);
       bool hasText = true;
       if (mlKitLang != TranslateLanguage.english) {
         hasText = await modelManager.isModelDownloaded(mlKitLang.bcpCode);
       }
 
-      // If both physical files are found, instantly flip the UI to the Green Checkmark!
-      if (hasAcoustic && hasText) {
+      if (hasAllFiles && hasText) {
         updatedState[lang] = -1.0; 
       }
     }
@@ -115,83 +121,59 @@ class LanguagePackNotifier extends Notifier<Map<String, double>> {
   }
 
   Future<void> downloadLanguagePack(String language) async {
-    if (!_modelUrls.containsKey(language)) {
-      debugPrint("SYSTEM ERROR: No direct URLs mapped for $language.");
-      return;
-    }
+    if (!_modelUrls.containsKey(language)) return;
 
     state = {...state, language: 0.01}; 
-    final urls = _modelUrls[language]!;
+    final filesToDownload = _modelUrls[language]!;
 
     try {
       final dir = await getApplicationDocumentsDirectory();
       final langDir = Directory('${dir.path}/models/$language');
       if (!await langDir.exists()) await langDir.create(recursive: true);
 
-      // 1. Download IndicConformer Unified Model (INT8)
-      await _dio.download(
-        urls['model']!,
-        '${langDir.path}/model.onnx',
-        onReceiveProgress: (rec, total) {
-          if (total != -1) {
-            // Allocate 70% of the UI progress bar to the audio model
-            state = {...state, language: (rec / total) * 0.70};
-          }
-        },
-      );
+      int filesCompleted = 0;
+      int totalFiles = filesToDownload.length;
 
-      // 2. Download Tokens
-      await _dio.download(
-        urls['tokens']!,
-        '${langDir.path}/tokens.txt',
-      );
+      // Iteratively download all required .onnx and token files
+      for (var entry in filesToDownload.entries) {
+        String fileName = entry.key;
+        String url = entry.value;
 
-      // 3. Cache Google ML Kit Translation Models Offline
+        await _dio.download(
+          url,
+          '${langDir.path}/$fileName',
+          onReceiveProgress: (rec, total) {
+            if (total != -1) {
+              double fileProgress = rec / total;
+              double overallProgress = ((filesCompleted + fileProgress) / totalFiles) * 0.70;
+              state = {...state, language: overallProgress};
+            }
+          },
+        );
+        filesCompleted++;
+      }
+
       state = {...state, language: 0.85}; 
-      debugPrint("SYSTEM LOG: Verifying Google ML Kit translation weights for $language...");
-      
       final modelManager = OnDeviceTranslatorModelManager();
       
-      // Helper function to smartly handle the OS DownloadManager queue
       Future<void> ensureModelReady(TranslateLanguage lang) async {
         final bcpCode = lang.bcpCode;
-        final isDownloaded = await modelManager.isModelDownloaded(bcpCode);
-        
-        if (!isDownloaded) {
-          debugPrint("SYSTEM LOG: Instructing OS to download ML Kit model: $bcpCode...");
-          
-          // Execute download with a strict 60-second fallback
-          final success = await modelManager.downloadModel(
-            bcpCode, 
-            isWifiRequired: false,
-          ).timeout(
-            const Duration(seconds: 60), 
-            onTimeout: () => false, // Catch silent hangs
-          );
-          
-          if (!success) {
-            throw Exception("OS DownloadManager blocked the task. Check Data Saver/Wi-Fi.");
-          }
-        } else {
-          debugPrint("SYSTEM LOG: ML Kit model $bcpCode already securely cached.");
+        if (!await modelManager.isModelDownloaded(bcpCode)) {
+          final success = await modelManager.downloadModel(bcpCode, isWifiRequired: false)
+            .timeout(const Duration(seconds: 60), onTimeout: () => false);
+          if (!success) throw Exception("OS Blocked Translation Download.");
         }
       }
 
-      // Ensure the English pivot model is cached
       await ensureModelReady(TranslateLanguage.english);
-      
-      // Ensure the requested regional language model is cached
       final mlKitLang = _getMlKitLanguage(language);
-      if (mlKitLang != TranslateLanguage.english) {
-        await ensureModelReady(mlKitLang);
-      }
+      if (mlKitLang != TranslateLanguage.english) await ensureModelReady(mlKitLang);
       
-      state = {...state, language: -1.0}; // 100% Complete
-      debugPrint("SYSTEM LOG: $language Acoustic & Text Translation packs fully secured on edge storage.");
+      state = {...state, language: -1.0}; 
 
     } catch (e) {
       debugPrint("SYSTEM ERROR: Failed to download $language pack -> $e");
-      state = {...state, language: -2.0}; // Flip UI to Red Error State
+      state = {...state, language: -2.0}; 
     }
   }
 }
